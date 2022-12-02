@@ -21,7 +21,7 @@ impl Xrandr {
         }
     }
 
-    pub fn list_screens(&self) -> CmdResult<Vec<String>> {
+    pub fn list_connected_screens(&self) -> CmdResult<Vec<String>> {
         Ok(
             cmd::run_and_fetch_output(&format!("{} | grep \" connected\"", self.cmd))?
                 .split('\n')

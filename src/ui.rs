@@ -3,6 +3,7 @@ use crate::{
     cli::{
         cmd::CmdResult,
         dmenu::{Dmenu, Message},
+        xrandr::Xrandr,
     },
     config::{self, LayoutConfig},
 };
@@ -61,12 +62,24 @@ impl From<String> for StartOption {
 
 pub struct UI {
     dmenu: Dmenu,
+    xrandr: Xrandr,
     config: LayoutConfig,
 }
 
 impl UI {
     fn create_layout(&self) -> CmdResult<()> {
-        // self.dmenu.run_and_fetch_output(Message::new());
+        let screens_available = self.xrandr.list_connected_screens()?;
+        if screens_available.len() == 1 {
+            return self.dmenu.run(Message::new(
+                &[],
+                "You don't have any external monitors connected.",
+            ));
+        }
+        let screen = self.dmenu.run_until_output_not_matched(Message::new(
+            &screens_available,
+            "What screen to connect?",
+        ))?;
+        println!("You choose {} monitor", screen);
         unimplemented!("Chain of commands/choices to create new layout.");
     }
 
@@ -75,7 +88,7 @@ impl UI {
         Ok(())
     }
 
-    fn ask_to_create_layout(&self) -> CmdResult<()> {
+    fn ask_and_create_layout_if_yes(&self) -> CmdResult<()> {
         if self.does_create_layout()? {
             self.create_layout()?;
         }
@@ -96,7 +109,7 @@ impl UI {
 
     fn choose_layout(&self) -> CmdResult<String> {
         if self.config.is_empty() {
-            self.ask_to_create_layout()?;
+            self.ask_and_create_layout_if_yes()?;
             Ok(String::new())
         } else {
             let layout_names = self.config.layout_names();
@@ -113,6 +126,7 @@ impl UI {
     pub fn new(config_path: &Path, dmenu_path: Option<PathBuf>) -> Result<Self, config::Error> {
         Ok(Self {
             dmenu: Dmenu::new(dmenu_path, None),
+            xrandr: Xrandr::default(),
             config: LayoutConfig::try_from_toml(config_path)?,
         })
     }
