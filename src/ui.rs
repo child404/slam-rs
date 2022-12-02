@@ -6,8 +6,10 @@ use crate::{
         xrandr::Xrandr,
     },
     config::{self, LayoutConfig},
+    screen::{Layout, Orientation, Output, Position, State},
 };
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     process,
 };
@@ -67,28 +69,141 @@ pub struct UI {
 }
 
 impl UI {
-    fn create_layout(&self) -> CmdResult<()> {
-        let screens_available = self.xrandr.list_connected_screens()?;
-        if screens_available.len() == 1 {
-            return self.dmenu.run(Message::new(
-                &[],
-                "You don't have any external monitors connected.",
-            ));
+    // FIXME: needs refactoring
+    fn create_layout(&mut self) -> CmdResult<()> {
+        let mut screen_options = self.xrandr.get_output_modes()?;
+        let outputs_connected = screen_options.keys().cloned().collect::<Vec<String>>();
+        // if screen_options.len() == 1 {
+        //     return self.dmenu.run(Message::new(
+        //         &[],
+        //         "You don't have any external monitors connected.",
+        //     ));
+        // }
+        let mut relative_outputs = HashMap::new();
+        let mut is_primary_selected = false;
+        let mut does_add_new_screen = true;
+        let mut layout = Layout::new();
+        layout.name = self
+            .dmenu
+            .run_and_fetch_output(&Message::new(&[], "Give the name to your layout:"), false)?;
+        // TODO: show user all outputs except that one which is selected
+        // TODO: instead of removing output, add next logic:
+        //      1) when user specifies the monitor, the monitor still there, but with `check`
+        //      2) if user selects checked output - ask does he want to override selected settings
+        //      3) if yes - override settings, otherwise, continue
+        while does_add_new_screen || !screen_options.is_empty() {
+            let mut output = Output::new();
+            output.name = self.dmenu.run_until_output_not_matched(Message::new(
+                &screen_options.keys().cloned().collect::<Vec<String>>(),
+                "What screen to connect?",
+            ))?;
+            output.mode.resolution = self
+                .dmenu
+                .run_until_output_not_matched(Message::new(
+                    &screen_options[&output.name].resolutions(),
+                    "Choose resolution:",
+                ))?
+                .into();
+            output.mode.rate = self
+                .dmenu
+                .run_until_output_not_matched(Message::new(
+                    &screen_options[&output.name].rates(),
+                    "Choose rate:",
+                ))?
+                .into();
+            output.orientation = self
+                .dmenu
+                .run_until_output_not_matched(Message::new(
+                    &Orientation::list(),
+                    "Choose orientation:",
+                ))?
+                .into();
+
+            let outputs_not_selected = outputs_connected
+                .iter()
+                .filter(|output_name| output_name != &&output.name)
+                .map(|s| s.to_string())
+                .collect::<Vec<String>>();
+
+            // TODO: handle situation when the duplicated/relative screen is not connected in the end
+            // TODO: handle issue when only no outputs left for relative position
+            let position = self.dmenu.run_until_output_not_matched(Message::new(
+                &Position::list(),
+                "Choose position:",
+            ))?;
+            let relative_screen = if position.as_str() != "Center" {
+                Some(
+                    self.dmenu.run_until_output_not_matched(Message::new(
+                        &outputs_not_selected
+                            .iter()
+                            .filter(|output_name| {
+                                if let Some(output_name) =
+                                    relative_outputs.get(&output_name.to_string())
+                                {
+                                    output_name == &output.name
+                                } else {
+                                    true
+                                }
+                            })
+                            .map(|s| s.to_string())
+                            .collect::<Vec<String>>(),
+                        "Choose relative screen:",
+                    ))?,
+                )
+            } else {
+                None
+            };
+            if let Some(output_name) = relative_screen.clone() {
+                relative_outputs.insert(output.name.clone(), output_name);
+            }
+            output.position = Position::from(&position, relative_screen);
+
+            let state = self
+                .dmenu
+                .run_until_output_not_matched(Message::new(&State::list(), "Choose state:"))?;
+            let duplicated_screen = if state.as_str() == "Duplicated" {
+                Some(self.dmenu.run_until_output_not_matched(Message::new(
+                    &outputs_not_selected,
+                    "Choose duplicated screen:",
+                ))?)
+            } else {
+                None
+            };
+            output.state = State::from(&state, duplicated_screen);
+
+            output.is_primary = if !is_primary_selected {
+                self.ask_with_confirmation(&format!(
+                    "Make screen {} primary? (only once)",
+                    &output.name
+                ))?
+            } else {
+                false
+            };
+            if output.is_primary {
+                is_primary_selected = true;
+            }
+
+            screen_options.remove(&output.name);
+            layout.add(&output);
+
+            does_add_new_screen = self.ask_with_confirmation("Add one more screen?")?;
         }
-        let screen = self.dmenu.run_until_output_not_matched(Message::new(
-            &screens_available,
-            "What screen to connect?",
-        ))?;
-        println!("You choose {} monitor", screen);
+        // TODO: handle if no outputs specified
+        self.config.add(&layout);
+        if self.ask_with_confirmation("Apply new layout?")? {
+            self.config.apply(&layout.name)
+        }
+        println!("You choose {} monitor", layout.name);
         unimplemented!("Chain of commands/choices to create new layout.");
     }
 
     fn remove_layout(&mut self) -> CmdResult<()> {
-        self.config.remove(&self.choose_layout()?);
+        let layout_name = self.choose_layout()?;
+        self.config.remove(&layout_name);
         Ok(())
     }
 
-    fn ask_and_create_layout_if_yes(&self) -> CmdResult<()> {
+    fn ask_and_create_layout_if_yes(&mut self) -> CmdResult<()> {
         if self.does_create_layout()? {
             self.create_layout()?;
         }
@@ -107,7 +222,7 @@ impl UI {
         self.ask_with_confirmation("You don't have any layouts yet. Create one?")
     }
 
-    fn choose_layout(&self) -> CmdResult<String> {
+    fn choose_layout(&mut self) -> CmdResult<String> {
         if self.config.is_empty() {
             self.ask_and_create_layout_if_yes()?;
             Ok(String::new())
@@ -118,8 +233,9 @@ impl UI {
         }
     }
 
-    fn apply_layout(&self) -> CmdResult<()> {
-        self.config.apply(&self.choose_layout()?);
+    fn apply_layout(&mut self) -> CmdResult<()> {
+        let layout_name = self.choose_layout()?;
+        self.config.apply(&layout_name);
         Ok(())
     }
 

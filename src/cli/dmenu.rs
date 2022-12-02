@@ -38,7 +38,7 @@ impl Dmenu {
 
     pub fn run_until_output_not_matched(&self, message: Message) -> CmdResult<String> {
         loop {
-            let result = self.run_and_fetch_output(&message);
+            let result = self.run_and_fetch_output(&message, true);
             if let Err(cmd::Error::InvalidOutput) = result {
                 continue;
             }
@@ -46,12 +46,16 @@ impl Dmenu {
         }
     }
 
-    pub fn run_and_fetch_output(&self, message: &Message) -> CmdResult<String> {
+    pub fn run_and_fetch_output(
+        &self,
+        message: &Message,
+        validate_output: bool,
+    ) -> CmdResult<String> {
         // Loop until user won't choose one of the existing options or exit
         match cmd::run_and_fetch_output(&self.to_cmd(message)) {
             Err(cmd::Error::EmptyOutput) => process::exit(0),
             Ok(output) => {
-                if message.contains(&output) {
+                if !validate_output || message.contains(&output) {
                     Ok(output)
                 } else {
                     Err(cmd::Error::InvalidOutput)

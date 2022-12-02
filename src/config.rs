@@ -109,4 +109,13 @@ impl LayoutConfig {
     fn _remove_from_toml(&self, layout_name: &str) {
         unimplemented!();
     }
+
+    pub fn add(&mut self, layout: &Layout) {
+        self.layouts.insert(layout.name.clone(), layout.clone());
+        self._add_to_toml(layout);
+    }
+
+    fn _add_to_toml(&self, layout: &Layout) {
+        unimplemented!()
+    }
 }
