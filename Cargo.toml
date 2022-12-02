@@ -1,0 +1,34 @@
+[package]
+name = "slam-rs"
+version = "0.1.0"
+edition = "2021"
+authors = ["child404 <vladrez1703@gmail.com>"]
+license = "MIT"
+description = "The program to manage screen layouts with the interface based on dmenu"
+keywords = ["slam-rs", "nlp", "street-processing", "text-processing"]
+categories = ["text-processing"]
+readme = "README.md"
+repository = "https://github.com/child404/slam-rs"
+
+[lib]
+name = "slam_rs"
+path = "src/lib.rs"
+
+[[bin]]
+name = "slam-rs"
+path = "src/main.rs"
+
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+toml = "0.5.9"
+serde_derive = "1.0.144"
+serde = "1.0.144"
+dirs = "4.0.0"
+regex = "1.6.0"
+clap = { version = "4.0.27", features = ["derive"] }
+which = "4.3.0"
+daemonize = "0.4.1"
+strum = "0.24.1"
+strum_macros = "0.24"
