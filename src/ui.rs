@@ -1,10 +1,10 @@
 /// UI based on dmenu
 use crate::{
-    config::{self, LayoutConfig},
-    utils::{
+    cli::{
         cmd::CmdResult,
         dmenu::{Dmenu, Message},
     },
+    config::{self, LayoutConfig},
 };
 use std::{
     path::{Path, PathBuf},

@@ -1,5 +1,5 @@
 /// Runs main app with UI based on dmenu
-use crate::{config, screen, ui::UI, utils::cmd};
+use crate::{cli::cmd, config, screen, ui::UI};
 use std::path::{Path, PathBuf};
 
 pub enum Error {

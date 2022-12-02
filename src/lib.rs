@@ -1,12 +1,12 @@
 pub mod app;
+pub mod cli;
 pub mod config;
 pub mod daemon;
 pub mod screen;
 pub mod ui;
-pub mod utils;
 
 use clap::Parser;
-use std::{path::PathBuf, process};
+use std::path::PathBuf;
 
 const PATH_TO_CONFIG: &str = ".config/slam_rs/config.toml";
 
@@ -17,7 +17,7 @@ macro_rules! exit_err {
     };
     ($($arg:tt)*) => {{
         eprintln!($($arg)*);
-        process::exit(1);
+        std::process::exit(1);
     }};
 }
 

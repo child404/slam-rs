@@ -1,7 +1,7 @@
 // Runs xrandr, parses its output,
 // saves to file, and offers to apply automatically detected layout
 use daemonize::Daemonize;
-use std::{fs::File, process, thread, time};
+use std::{fs::File, thread, time};
 
 const SAVE_DELAY: u64 = 3;
 

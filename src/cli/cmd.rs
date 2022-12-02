@@ -2,7 +2,7 @@ use std::{
     fmt::{self, Display},
     io,
     path::PathBuf,
-    process::{self, Command, Stdio},
+    process::{Command, Stdio},
     str::{self, Utf8Error},
 };
 use which::which;
