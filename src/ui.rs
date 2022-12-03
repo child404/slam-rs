@@ -73,15 +73,14 @@ impl UI {
     fn create_layout(&mut self) -> CmdResult<()> {
         let mut screen_options = self.xrandr.get_output_modes()?;
         let outputs_connected = screen_options.keys().cloned().collect::<Vec<String>>();
-        // if screen_options.len() == 1 {
-        //     return self.dmenu.run(Message::new(
-        //         &[],
-        //         "You don't have any external monitors connected.",
-        //     ));
-        // }
+        if screen_options.len() == 1 {
+            return self.dmenu.run(Message::new(
+                &[],
+                "You don't have any external monitors connected.",
+            ));
+        }
         let mut relative_outputs = HashMap::new();
         let mut is_primary_selected = false;
-        let mut does_add_new_screen = true;
         let mut layout = Layout::new();
         layout.name = self
             .dmenu
@@ -91,7 +90,7 @@ impl UI {
         //      1) when user specifies the monitor, the monitor still there, but with `check`
         //      2) if user selects checked output - ask does he want to override selected settings
         //      3) if yes - override settings, otherwise, continue
-        while does_add_new_screen || !screen_options.is_empty() {
+        loop {
             let mut output = Output::new();
             output.name = self.dmenu.run_until_output_not_matched(Message::new(
                 &screen_options.keys().cloned().collect::<Vec<String>>(),
@@ -137,10 +136,10 @@ impl UI {
                         &outputs_not_selected
                             .iter()
                             .filter(|output_name| {
-                                if let Some(output_name) =
+                                if let Some(relative_output_name) =
                                     relative_outputs.get(&output_name.to_string())
                                 {
-                                    output_name == &output.name
+                                    relative_output_name == &output.name
                                 } else {
                                     true
                                 }
@@ -158,6 +157,9 @@ impl UI {
             }
             output.position = Position::from(&position, relative_screen);
 
+            // TODO: if user chose duplicated - skip position
+            //                     disconnected - skip all steps
+            // TODO: start some parts if only connected/duplicates was choosen
             let state = self
                 .dmenu
                 .run_until_output_not_matched(Message::new(&State::list(), "Choose state:"))?;
@@ -186,7 +188,9 @@ impl UI {
             screen_options.remove(&output.name);
             layout.add(&output);
 
-            does_add_new_screen = self.ask_with_confirmation("Add one more screen?")?;
+            if screen_options.is_empty() || !self.ask_with_confirmation("Add one more screen?")? {
+                break;
+            }
         }
         // TODO: handle if no outputs specified
         self.config.add(&layout);
