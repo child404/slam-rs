@@ -6,7 +6,9 @@ use crate::{
         xrandr::Xrandr,
     },
     config::{self, LayoutConfig},
+    exit_err,
     screen::{Layout, Orientation, Output, Position, State},
+    vec_from_enum,
 };
 use std::{
     collections::HashMap,
@@ -16,6 +18,10 @@ use std::{
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
+const CHECK_SIGN: &str = "✓";
+const PRIMARY_NOT_SELECTED: bool = false;
+const PRIMARY_SELECTED: bool = true;
+
 #[derive(EnumIter)]
 pub enum StartOption {
     AutoDetect,
@@ -24,12 +30,6 @@ pub enum StartOption {
     RemoveLayout,
     NewLayout,
     Exit,
-}
-
-impl StartOption {
-    pub fn list() -> Vec<String> {
-        Self::iter().map(|v| v.to_string()).collect()
-    }
 }
 
 impl ToString for StartOption {
@@ -56,7 +56,7 @@ impl From<String> for StartOption {
             "Exit" => Self::Exit,
             "Apply Layout" => Self::ApplyLayout,
             other => {
-                crate::exit_err!("Unexpected start option: {}", other);
+                exit_err!("Unexpected start option: {}", other);
             }
         }
     }
@@ -69,136 +69,204 @@ pub struct UI {
 }
 
 impl UI {
-    // FIXME: needs refactoring
+    fn select_layout_name(&self, layout: &mut Layout) -> CmdResult<()> {
+        layout.name = self.dmenu.run_and_fetch_output(
+            &Message::new(
+                &self.config.layout_names(),
+                "What is the name of a new layout? (created are listed below)",
+            ),
+            false,
+        )?;
+        Ok(())
+    }
+
+    fn select_output_name(&self, output: &mut Output, output_names: &[String]) -> CmdResult<()> {
+        output.name = self
+            .dmenu
+            .run_until_output_not_matched(Message::new(output_names, "What screen to connect?"))?;
+        Ok(())
+    }
+
+    fn select_state(&self, output: &mut Output, other_outputs: &[String]) -> CmdResult<()> {
+        let state = self
+            .dmenu
+            .run_until_output_not_matched(Message::new(&vec_from_enum!(State), "Choose state:"))?;
+        let duplicated_screen = if &state == "Duplicated" {
+            Some(self.dmenu.run_until_output_not_matched(Message::new(
+                other_outputs,
+                "Choose duplicated screen:",
+            ))?)
+        } else {
+            None
+        };
+        output.state = State::from(&state, duplicated_screen);
+        Ok(())
+    }
+
+    fn select_resolution(&self, output: &mut Output, resolutions: &[String]) -> CmdResult<()> {
+        output.mode.resolution = self
+            .dmenu
+            .run_until_output_not_matched(Message::new(resolutions, "Choose resolution:"))?
+            .into();
+        Ok(())
+    }
+
+    fn select_rate(&self, output: &mut Output, rates: &[String]) -> CmdResult<()> {
+        output.mode.rate = self
+            .dmenu
+            .run_until_output_not_matched(Message::new(rates, "Choose rate:"))?
+            .into();
+        Ok(())
+    }
+
+    fn select_orientation(&self, output: &mut Output) -> CmdResult<()> {
+        output.orientation = self
+            .dmenu
+            .run_until_output_not_matched(Message::new(
+                &vec_from_enum!(Orientation),
+                "Choose orientation:",
+            ))?
+            .into();
+        Ok(())
+    }
+
+    fn select_position(
+        &self,
+        output: &mut Output,
+        other_outputs: &[String],
+        relative_outputs: &mut HashMap<String, String>,
+    ) -> CmdResult<()> {
+        // filter outputs that already were placed relatively to the current output
+        let outputs_for_relative_position = other_outputs
+            .iter()
+            .filter(|output_name| {
+                if let Some(relative_output_name) = relative_outputs.get(&output_name.to_string()) {
+                    relative_output_name == &output.name
+                } else {
+                    true
+                }
+            })
+            .cloned()
+            .collect::<Vec<String>>();
+        let positions = if !outputs_for_relative_position.is_empty() {
+            vec_from_enum!(Position)
+        } else {
+            vec![Position::Center.to_string()]
+        };
+        let position = self
+            .dmenu
+            .run_until_output_not_matched(Message::new(&positions, "Choose position:"))?;
+        let relative_screen = if &position != "Center" {
+            Some(self.dmenu.run_until_output_not_matched(Message::new(
+                &outputs_for_relative_position,
+                "Choose relative screen:",
+            ))?)
+        } else {
+            None
+        };
+        if let Some(output_name) = relative_screen.clone() {
+            relative_outputs.insert(output.name.clone(), output_name);
+        }
+        output.position = Position::from(&position, relative_screen);
+        Ok(())
+    }
+
     fn create_layout(&mut self) -> CmdResult<()> {
-        let mut screen_options = self.xrandr.get_output_modes()?;
-        let outputs_connected = screen_options.keys().cloned().collect::<Vec<String>>();
-        if screen_options.len() == 1 {
+        let mut output_modes = self.xrandr.get_output_modes()?;
+        let outputs_connected = output_modes.keys().cloned().collect::<Vec<String>>();
+        if output_modes.len() == 1 {
             return self.dmenu.run(Message::new(
                 &[],
                 "You don't have any external monitors connected.",
             ));
         }
         let mut relative_outputs = HashMap::new();
-        let mut is_primary_selected = false;
+        let mut is_primary_selected = PRIMARY_NOT_SELECTED;
+
         let mut layout = Layout::new();
-        layout.name = self
-            .dmenu
-            .run_and_fetch_output(&Message::new(&[], "Give the name to your layout:"), false)?;
-        // TODO: show user all outputs except that one which is selected
+
+        self.select_layout_name(&mut layout)?;
+        if !matches!(self.config.get(&layout.name), None)
+            && !self.does_override_existing_layout(&layout.name)?
+        {
+            return self.create_layout();
+        }
+
         // TODO: instead of removing output, add next logic:
         //      1) when user specifies the monitor, the monitor still there, but with `check`
         //      2) if user selects checked output - ask does he want to override selected settings
         //      3) if yes - override settings, otherwise, continue
         loop {
             let mut output = Output::new();
-            output.name = self.dmenu.run_until_output_not_matched(Message::new(
-                &screen_options.keys().cloned().collect::<Vec<String>>(),
-                "What screen to connect?",
-            ))?;
-            output.mode.resolution = self
-                .dmenu
-                .run_until_output_not_matched(Message::new(
-                    &screen_options[&output.name].resolutions(),
-                    "Choose resolution:",
-                ))?
-                .into();
-            output.mode.rate = self
-                .dmenu
-                .run_until_output_not_matched(Message::new(
-                    &screen_options[&output.name].rates(),
-                    "Choose rate:",
-                ))?
-                .into();
-            output.orientation = self
-                .dmenu
-                .run_until_output_not_matched(Message::new(
-                    &Orientation::list(),
-                    "Choose orientation:",
-                ))?
-                .into();
 
-            let outputs_not_selected = outputs_connected
+            self.select_output_name(
+                &mut output,
+                &output_modes.keys().cloned().collect::<Vec<String>>(),
+            )?;
+
+            let other_outputs = outputs_connected
                 .iter()
                 .filter(|output_name| output_name != &&output.name)
-                .map(|s| s.to_string())
+                .cloned()
                 .collect::<Vec<String>>();
 
-            // TODO: handle situation when the duplicated/relative screen is not connected in the end
-            // TODO: handle issue when only no outputs left for relative position
-            let position = self.dmenu.run_until_output_not_matched(Message::new(
-                &Position::list(),
-                "Choose position:",
-            ))?;
-            let relative_screen = if position.as_str() != "Center" {
-                Some(
-                    self.dmenu.run_until_output_not_matched(Message::new(
-                        &outputs_not_selected
-                            .iter()
-                            .filter(|output_name| {
-                                if let Some(relative_output_name) =
-                                    relative_outputs.get(&output_name.to_string())
-                                {
-                                    relative_output_name == &output.name
-                                } else {
-                                    true
-                                }
-                            })
-                            .map(|s| s.to_string())
-                            .collect::<Vec<String>>(),
-                        "Choose relative screen:",
-                    ))?,
-                )
-            } else {
-                None
-            };
-            if let Some(output_name) = relative_screen.clone() {
-                relative_outputs.insert(output.name.clone(), output_name);
-            }
-            output.position = Position::from(&position, relative_screen);
+            self.select_state(&mut output, &other_outputs)?;
 
-            // TODO: if user chose duplicated - skip position
-            //                     disconnected - skip all steps
-            // TODO: start some parts if only connected/duplicates was choosen
-            let state = self
-                .dmenu
-                .run_until_output_not_matched(Message::new(&State::list(), "Choose state:"))?;
-            let duplicated_screen = if state.as_str() == "Duplicated" {
-                Some(self.dmenu.run_until_output_not_matched(Message::new(
-                    &outputs_not_selected,
-                    "Choose duplicated screen:",
-                ))?)
-            } else {
-                None
-            };
-            output.state = State::from(&state, duplicated_screen);
+            if !matches!(output.state, State::Disconnected) {
+                let resolutions = output_modes[&output.name].resolutions();
+                self.select_resolution(&mut output, &resolutions)?;
 
-            output.is_primary = if !is_primary_selected {
-                self.ask_with_confirmation(&format!(
-                    "Make screen {} primary? (only once)",
-                    &output.name
-                ))?
-            } else {
-                false
-            };
-            if output.is_primary {
-                is_primary_selected = true;
+                let rates = output_modes[&output.name].rates();
+                self.select_rate(&mut output, &rates)?;
+
+                self.select_orientation(&mut output)?;
+
+                // TODO: handle situation when the duplicated/relative screen is not connected in the end
+                // TODO: run position selection only after all outputs were selected
+                if matches!(output.state, State::Connected) {
+                    self.select_position(&mut output, &other_outputs, &mut relative_outputs)?;
+                }
+
+                output.is_primary =
+                    !is_primary_selected && self.does_make_output_primary(&output.name)?;
+                if output.is_primary {
+                    is_primary_selected = PRIMARY_SELECTED;
+                }
             }
 
-            screen_options.remove(&output.name);
+            output_modes.remove(&output.name);
             layout.add(&output);
 
-            if screen_options.is_empty() || !self.ask_with_confirmation("Add one more screen?")? {
+            if output_modes.is_empty() || !self.does_add_another_screen()? {
                 break;
             }
         }
-        // TODO: handle if no outputs specified
-        self.config.add(&layout);
-        if self.ask_with_confirmation("Apply new layout?")? {
-            self.config.apply(&layout.name)
+        if !layout.is_empty() {
+            self.config.add(&layout);
+            if self.does_apply_new_layout()? {
+                self.config.apply(&layout.name);
+            }
         }
-        println!("You choose {} monitor", layout.name);
-        unimplemented!("Chain of commands/choices to create new layout.");
+        Ok(())
+    }
+
+    fn does_override_existing_layout(&self, layout_name: &str) -> CmdResult<bool> {
+        self.ask_with_confirmation(&format!(
+            "Do you really want to overwrite existing layout: `{}`?",
+            layout_name
+        ))
+    }
+
+    fn does_make_output_primary(&self, output_name: &str) -> CmdResult<bool> {
+        self.ask_with_confirmation(&format!("Make screen {} primary? (only once)", output_name))
+    }
+
+    fn does_add_another_screen(&self) -> CmdResult<bool> {
+        self.ask_with_confirmation("Add another screen?")
+    }
+
+    fn does_apply_new_layout(&self) -> CmdResult<bool> {
+        self.ask_with_confirmation("Apply new layout?")
     }
 
     fn remove_layout(&mut self) -> CmdResult<()> {
@@ -256,9 +324,7 @@ impl UI {
             StartOption::AutoDetect => {
                 unimplemented!("Auto-Detect (xrandr?) monitors and apply layout automatically.")
             }
-            StartOption::DisconnectAll => {
-                unimplemented!("Apply layout with only one (internal?) monitor.")
-            }
+            StartOption::DisconnectAll => self.config.disconnect_all(),
             StartOption::NewLayout => self.create_layout(),
             StartOption::ApplyLayout => self.apply_layout(),
             StartOption::RemoveLayout => self.remove_layout(),
@@ -269,7 +335,10 @@ impl UI {
     fn choose_start_option(&self) -> CmdResult<StartOption> {
         Ok(self
             .dmenu
-            .run_until_output_not_matched(Message::new(&StartOption::list(), "Choose an option:"))?
+            .run_until_output_not_matched(Message::new(
+                &vec_from_enum!(StartOption),
+                "Choose an option:",
+            ))?
             .into())
     }
 }

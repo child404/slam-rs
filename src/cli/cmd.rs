@@ -1,3 +1,4 @@
+use crate::exit_err;
 use std::{
     fmt::{self, Display},
     io,
@@ -40,7 +41,7 @@ impl From<io::Error> for Error {
 
 pub fn find_executable(name: &str) -> PathBuf {
     which(name).unwrap_or_else(|_| {
-        crate::exit_err!(
+        exit_err!(
             "Cannot find {} in PATH! Please, install {} or add it to PATH if installed.",
             name,
             name

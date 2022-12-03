@@ -1,4 +1,4 @@
-use crate::screen::Layout;
+use crate::{cli::cmd::CmdResult, exit_err, screen::Layout};
 use serde_derive::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -49,16 +49,28 @@ impl LayoutConfig {
         }
     }
 
-    fn _create_config_file(config_path: &Path) -> Result<(), io::Error> {
+    pub fn get(&self, layout_name: &str) -> Option<&Layout> {
+        self.layouts.get(layout_name)
+    }
+
+    pub fn layout_names(&self) -> Vec<String> {
+        self.layouts.keys().cloned().collect()
+    }
+
+    pub fn disconnect_all(&self) -> CmdResult<()> {
+        unimplemented!()
+    }
+
+    fn _create_config_file(path: &Path) -> Result<(), io::Error> {
         fs::DirBuilder::new().recursive(true).create(
-            config_path
+            path
                 .parent()
-                .unwrap_or_else(|| crate::exit_err!(
+                .unwrap_or_else(|| exit_err!(
                     "Incorrect path to config file. Expected file with parent directory, but the value was: {:?}",
-                    config_path
+                    path
                 ))
         )?;
-        fs::File::create(config_path)?;
+        fs::File::create(path)?;
         Ok(())
     }
 
@@ -84,10 +96,6 @@ impl LayoutConfig {
 
     pub fn is_empty(&self) -> bool {
         self.layouts.is_empty()
-    }
-
-    pub fn layout_names(&self) -> Vec<String> {
-        self.layouts.keys().map(|name| name.to_string()).collect()
     }
 
     pub fn apply(&self, layout_name: &str) {

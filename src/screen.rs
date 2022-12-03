@@ -1,5 +1,7 @@
+use crate::exit_err;
 use itertools::Itertools;
 use regex::Regex;
+use serde_derive::{Deserialize, Serialize};
 use std::{
     cmp::{Eq, Ord, Ordering, PartialEq},
     collections::HashMap,
@@ -9,8 +11,6 @@ use std::{
 };
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
-
-use serde_derive::{Deserialize, Serialize};
 
 #[derive(Debug)]
 pub enum Error {
@@ -157,7 +157,7 @@ impl Position {
                     "Right of" => Self::RightOf(relative_screen),
                     "Above" => Self::Above(relative_screen),
                     "Below" => Self::Below(relative_screen),
-                    _ => crate::exit_err!("Unexpected position: {}", position),
+                    _ => exit_err!("Unexpected position: {}", position),
                 }
             }
         }
@@ -209,7 +209,7 @@ impl State {
             "Duplicated" => {
                 Self::Duplicated(duplicated_screen.expect("Duplicated screen should be specified."))
             }
-            _ => crate::exit_err!("Unexpected state option: {}", state),
+            _ => exit_err!("Unexpected state option: {}", state),
         }
     }
 }
@@ -275,7 +275,7 @@ impl From<String> for Orientation {
             "Inverted" => Self::Inverted,
             "Left" => Self::Left,
             "Right" => Self::Right,
-            _ => crate::exit_err!("Unknown orientatino: {}", orientation),
+            _ => exit_err!("Unknown orientatino: {}", orientation),
         }
     }
 }
@@ -338,6 +338,11 @@ impl Layout {
             outputs: HashMap::new(),
         }
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.outputs.is_empty()
+    }
+
     pub fn apply(&self) {
         unimplemented!();
     }

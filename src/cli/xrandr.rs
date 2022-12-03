@@ -55,22 +55,4 @@ impl Xrandr {
                 }),
         ))
     }
-
-    pub fn get_rates(&self, output_name: &str) -> Vec<String> {
-        unimplemented!()
-    }
-
-    pub fn get_resolutions(&self, output_name: &str) -> Vec<String> {
-        unimplemented!()
-    }
-
-    pub fn get_orientations(&self) -> Vec<String> {
-        unimplemented!()
-    }
-    pub fn get_positions(&self) -> Vec<String> {
-        unimplemented!()
-    }
-    pub fn get_states(&self) -> Vec<String> {
-        unimplemented!()
-    }
 }

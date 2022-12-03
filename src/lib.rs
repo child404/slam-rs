@@ -21,6 +21,15 @@ macro_rules! exit_err {
     }};
 }
 
+#[macro_export]
+macro_rules! vec_from_enum {
+    ($t:ty) => {{
+        <$t>::iter()
+            .map(|option| option.to_string())
+            .collect::<Vec<String>>()
+    }};
+}
+
 pub fn find_config_path() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| exit_err!("Cannot find home dir"))

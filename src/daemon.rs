@@ -1,5 +1,6 @@
 // Runs xrandr, parses its output,
 // saves to file, and offers to apply automatically detected layout
+use crate::exit_err;
 use daemonize::Daemonize;
 use std::{fs::File, thread, time};
 
@@ -9,9 +10,9 @@ const SAVE_DELAY: u64 = 3;
 //
 pub fn run_daemon() {
     let stdout = File::create("/tmp/slamd.out")
-        .unwrap_or_else(|error| crate::exit_err!("Error creating stdout file: {}", error));
+        .unwrap_or_else(|error| exit_err!("Error creating stdout file: {}", error));
     let stderr = File::create("/tmp/slamd.err")
-        .unwrap_or_else(|error| crate::exit_err!("Error creating stderr file: {}", error));
+        .unwrap_or_else(|error| exit_err!("Error creating stderr file: {}", error));
     let daemon = Daemonize::new()
         .pid_file("/tmp/slamd.pid")
         .chown_pid_file(true)
@@ -27,7 +28,7 @@ pub fn run_daemon() {
             unimplemented!();
         },
         Err(error) => {
-            crate::exit_err!("Error running slamd: {}", error);
+            exit_err!("Error running slamd: {}", error);
         }
     }
 }
