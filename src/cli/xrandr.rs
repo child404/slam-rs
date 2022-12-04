@@ -25,15 +25,6 @@ impl Xrandr {
         }
     }
 
-    pub fn list_connected_screens(&self) -> CmdResult<Vec<String>> {
-        Ok(
-            cmd::run_and_fetch_output(&format!("{} | grep \" connected\"", self.cmd))?
-                .split('\n')
-                .flat_map(parse_screen_output)
-                .collect(),
-        )
-    }
-
     pub fn get_output_modes(&self) -> CmdResult<HashMap<String, OutputModes>> {
         let screens_regexp =
             Regex::new(r"(.+) connected\n(?:[\da-zA-Z]+x[\da-zA-Z]+ [\da-zA-Z]+\.[\da-zA-Z]+\n)+")
@@ -54,5 +45,19 @@ impl Xrandr {
                     )
                 }),
         ))
+    }
+
+    pub fn list_disconnected_outputs(&self) -> CmdResult<Vec<String>> {
+        Ok(
+            cmd::run_and_fetch_output(&format!("{} | grep \" disconnected\"", self.cmd))?
+                .split('\n')
+                .flat_map(parse_screen_output)
+                .collect(),
+        )
+    }
+
+    pub fn run_with_args(&self, args: &[String]) -> CmdResult<()> {
+        let command = format!("{} {}", self.cmd, args.join(" "));
+        cmd::run(&command)
     }
 }

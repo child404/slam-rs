@@ -56,7 +56,12 @@ pub struct Cmd {
 
 impl Display for Cmd {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?} {}", self.bin_path, self.args.join(" "))
+        write!(
+            f,
+            "{} {}",
+            self.bin_path.to_string_lossy(),
+            self.args.join(" ")
+        )
     }
 }
 

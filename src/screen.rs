@@ -135,6 +135,7 @@ impl ToString for Rate {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default, EnumIter)]
+#[serde(tag = "type", content = "related_to")]
 pub enum Position {
     #[default]
     Center,
@@ -192,6 +193,7 @@ impl ToXrandrArg for Position {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default, EnumIter)]
+#[serde(tag = "type", content = "related_to")]
 pub enum State {
     #[default]
     Connected,
@@ -238,6 +240,7 @@ impl ToXrandrArg for State {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default, EnumIter)]
+#[serde(tag = "type")]
 pub enum Orientation {
     #[default]
     Normal,
@@ -325,11 +328,30 @@ impl Output {
             orientation: Orientation::Normal,
         }
     }
+
+    fn to_xrandr_output(&self) -> String {
+        format!(
+            "--output {} {} {} {} {} {}",
+            self.name,
+            self.mode.to_xrandr_arg(),
+            self.orientation.to_xrandr_arg(),
+            self.position.to_xrandr_arg(),
+            self.state.to_xrandr_arg(),
+            {
+                if self.is_primary {
+                    "--primary"
+                } else {
+                    ""
+                }
+            }
+        )
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct Layout {
     pub name: String,
+    pub is_current: bool,
     pub outputs: Outputs,
 }
 
@@ -337,6 +359,7 @@ impl Layout {
     pub fn new() -> Self {
         Self {
             name: String::new(),
+            is_current: false,
             outputs: Outputs::new(),
         }
     }
@@ -345,16 +368,20 @@ impl Layout {
         self.outputs.is_empty()
     }
 
-    pub fn apply(&self) {
-        unimplemented!();
-    }
-
     pub fn add(&mut self, output: Output) {
         self.outputs.insert(output.name.clone(), output);
     }
 
     pub fn get(&self, output_name: &str) -> Option<&Output> {
         self.outputs.get(output_name)
+    }
+
+    pub fn get_xrandr_args(&self) -> Vec<String> {
+        // TODO: replace xrandr with static Singletone and use it here
+        self.outputs
+            .iter()
+            .map(|(_, output)| output.to_xrandr_output())
+            .collect::<Vec<String>>()
     }
 }
 

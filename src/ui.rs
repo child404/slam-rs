@@ -5,7 +5,7 @@ use crate::{
         dmenu::{Dmenu, Message},
         xrandr::Xrandr,
     },
-    config::{self, LayoutConfig},
+    config::{self, LayoutConfig, CHECK_SIGN},
     exit_err,
     screen::{Layout, Orientation, Output, Position, State},
     vec_from_enum,
@@ -18,14 +18,11 @@ use std::{
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
-const CHECK_SIGN: &str = "✓";
 const PRIMARY_NOT_SELECTED: bool = false;
 const PRIMARY_SELECTED: bool = true;
 
 #[derive(EnumIter)]
 pub enum StartOption {
-    AutoDetect,
-    DisconnectAll,
     ApplyLayout,
     RemoveLayout,
     NewLayout,
@@ -35,8 +32,6 @@ pub enum StartOption {
 impl ToString for StartOption {
     fn to_string(&self) -> String {
         match self {
-            Self::AutoDetect => "Auto-Detect",
-            Self::DisconnectAll => "Disconnect All",
             Self::NewLayout => "New Layout",
             Self::RemoveLayout => "Remove Layout",
             Self::ApplyLayout => "Apply Layout",
@@ -49,8 +44,6 @@ impl ToString for StartOption {
 impl From<String> for StartOption {
     fn from(action: String) -> Self {
         match action.as_str() {
-            "Auto-Detect" => Self::AutoDetect,
-            "Disconnect All" => Self::DisconnectAll,
             "New Layout" => Self::NewLayout,
             "Remove Layout" => Self::RemoveLayout,
             "Exit" => Self::Exit,
@@ -68,15 +61,19 @@ pub struct UI {
     config: LayoutConfig,
 }
 
+// TODO: add LayoutManager struct which will create/remove/apply layouts
 impl UI {
     fn select_layout_name(&self, layout: &mut Layout) -> CmdResult<()> {
-        layout.name = self.dmenu.run_and_fetch_output(
-            &Message::new(
-                &self.config.layout_names(),
-                "What is the name of a new layout? (created are listed below)",
-            ),
-            false,
-        )?;
+        layout.name = self
+            .dmenu
+            .run_and_fetch_output(
+                &Message::new(
+                    &self.config.layout_names(),
+                    "What is the name of a new layout? (created are listed below)",
+                ),
+                false,
+            )?
+            .replace(CHECK_SIGN, "");
         Ok(())
     }
 
@@ -183,15 +180,13 @@ impl UI {
     }
 
     fn create_layout(&mut self) -> CmdResult<()> {
-        println!("{:?}", self.config.layouts);
         let mut output_modes = self.xrandr.get_output_modes()?;
         let outputs_connected = output_modes.keys().cloned().collect::<Vec<String>>();
-        // if output_modes.len() == 1 {
-        //     return self.dmenu.run(Message::new(
-        //         &[],
-        //         "You don't have any external monitors connected.",
-        //     ));
-        // }
+        if output_modes.is_empty() {
+            return self
+                .dmenu
+                .run(Message::new(&[], "You don't have any monitors connected."));
+        }
         let mut relative_outputs = HashMap::new();
         let mut is_primary_selected = PRIMARY_NOT_SELECTED;
 
@@ -257,13 +252,24 @@ impl UI {
                 break;
             }
         }
-        if !layout.is_empty() {
-            self.config
-                .add(&layout)
-                .unwrap_or_else(|error| exit_err!("{}", error));
-            if self.does_apply_new_layout()? {
-                self.config.apply(&layout.name);
-            }
+        if layout.is_empty() {
+            return Ok(());
+        }
+        // add not used and disconnected outputs as disconnected
+        for output_name in output_modes
+            .keys()
+            .chain(self.xrandr.list_disconnected_outputs()?.iter())
+        {
+            layout.add(Output {
+                name: output_name.to_owned(),
+                ..Output::new()
+            });
+        }
+        self.config
+            .add(&layout)
+            .unwrap_or_else(|error| exit_err!("{}", error));
+        if self.does_apply_new_layout()? {
+            self.config.apply(&layout.name, &self.xrandr)?;
         }
         Ok(())
     }
@@ -289,9 +295,14 @@ impl UI {
 
     fn remove_layout(&mut self) -> CmdResult<()> {
         let layout_name = self.choose_layout()?;
-        self.config
-            .remove(&layout_name)
-            .unwrap_or_else(|error| exit_err!("{}", error));
+        if self.ask_with_confirmation(&format!(
+            "Do you really want to remove '{}' layout? This operation will be irreversible!",
+            &layout_name
+        ))? {
+            self.config
+                .remove(&layout_name)
+                .unwrap_or_else(|error| exit_err!("{}", error));
+        }
         Ok(())
     }
 
@@ -320,15 +331,16 @@ impl UI {
             Ok(String::new())
         } else {
             let layout_names = self.config.layout_names();
-            self.dmenu
-                .run_until_output_not_matched(Message::new(&layout_names, "Choose layout:"))
+            Ok(self
+                .dmenu
+                .run_until_output_not_matched(Message::new(&layout_names, "Choose layout:"))?
+                .replace(CHECK_SIGN, ""))
         }
     }
 
     fn apply_layout(&mut self) -> CmdResult<()> {
         let layout_name = self.choose_layout()?;
-        self.config.apply(&layout_name);
-        Ok(())
+        self.config.apply(&layout_name, &self.xrandr)
     }
 
     pub fn new(config_path: &Path, dmenu_path: Option<PathBuf>) -> Result<Self, config::Error> {
@@ -341,10 +353,11 @@ impl UI {
 
     pub fn start(&mut self) -> CmdResult<()> {
         match self.choose_start_option()? {
-            StartOption::AutoDetect => self.config.auto_detect(),
-            StartOption::DisconnectAll => self.config.disconnect_all(),
             StartOption::NewLayout => self.create_layout(),
-            StartOption::ApplyLayout => self.apply_layout(),
+            StartOption::ApplyLayout => {
+                self.apply_layout()?;
+                process::exit(0);
+            }
             StartOption::RemoveLayout => self.remove_layout(),
             StartOption::Exit => process::exit(0),
         }

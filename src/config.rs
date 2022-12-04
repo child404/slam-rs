@@ -1,4 +1,8 @@
-use crate::{cli::cmd::CmdResult, exit_err, screen::Layout};
+use crate::{
+    cli::{cmd::CmdResult, xrandr::Xrandr},
+    exit_err,
+    screen::Layout,
+};
 use serde_derive::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -6,6 +10,8 @@ use std::{
     io::{self, Write},
     path::{Path, PathBuf},
 };
+
+pub const CHECK_SIGN: &str = " ✓";
 
 pub type Layouts = HashMap<String, Layout>;
 
@@ -63,16 +69,17 @@ impl LayoutConfig {
         self.layouts.get(layout_name)
     }
 
-    pub fn auto_detect(&self) -> CmdResult<()> {
-        unimplemented!("Auto-Detect (xrandr?) monitors and apply layout automatically.")
-    }
-
     pub fn layout_names(&self) -> Vec<String> {
-        self.layouts.keys().cloned().collect()
-    }
-
-    pub fn disconnect_all(&self) -> CmdResult<()> {
-        unimplemented!()
+        self.layouts
+            .iter()
+            .map(|(layout_name, layout)| {
+                if layout.is_current {
+                    format!("{}{}", layout_name, CHECK_SIGN)
+                } else {
+                    layout_name.to_string()
+                }
+            })
+            .collect()
     }
 
     fn _create_config_file(path: &Path) -> Result<(), io::Error> {
@@ -114,15 +121,20 @@ impl LayoutConfig {
         self.layouts.is_empty()
     }
 
-    pub fn apply(&self, layout_name: &str) {
+    pub fn apply(&mut self, layout_name: &str, xrandr: &Xrandr) -> CmdResult<()> {
         if let Some(layout) = self.layouts.get(layout_name) {
-            layout.apply();
-            self._mark_layout_as_current(layout_name);
+            xrandr.run_with_args(&layout.get_xrandr_args())?;
+            self._mark_layout_as_current(layout_name)
+                .unwrap_or_else(|error| exit_err!("{}", error));
         }
+        Ok(())
     }
 
-    fn _mark_layout_as_current(&self, layout_name: &str) {
-        unimplemented!();
+    fn _mark_layout_as_current(&mut self, layout_name: &str) -> Result<(), Error> {
+        for (name, mut layout) in self.layouts.iter_mut() {
+            layout.is_current = *name == *layout_name;
+        }
+        self._overwrite_config()
     }
 
     pub fn remove(&mut self, layout_name: &str) -> Result<(), Error> {
@@ -140,7 +152,7 @@ impl LayoutConfig {
             .write(true)
             .truncate(true)
             .open(&self.file)
-            .expect("File created on init or existed before otherwise");
+            .expect("File created on init, or existed before otherwise");
         file.write_all(toml::Value::try_from(&self)?.to_string().as_bytes())?;
         Ok(())
     }
