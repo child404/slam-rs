@@ -2,7 +2,8 @@ use crate::{cli::cmd::CmdResult, exit_err, screen::Layout};
 use serde_derive::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    fmt, fs, io,
+    fmt, fs,
+    io::{self, Write},
     path::{Path, PathBuf},
 };
 
@@ -11,15 +12,23 @@ pub type Layouts = HashMap<String, Layout>;
 #[derive(Debug)]
 pub enum Error {
     Io(io::Error),
-    Toml(toml::de::Error),
+    TomlDe(toml::de::Error),
+    TomlSer(toml::ser::Error),
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Io(error) => write!(f, "Failed to read config file: {}", error),
-            Self::Toml(error) => write!(f, "Invalid layout config structure: {}", error),
+            Self::TomlDe(error) => write!(f, "Invalid layout config structure: {}", error),
+            Self::TomlSer(error) => write!(f, "Error serializing layout config: {}", error),
         }
+    }
+}
+
+impl From<toml::ser::Error> for Error {
+    fn from(error: toml::ser::Error) -> Self {
+        Self::TomlSer(error)
     }
 }
 
@@ -31,12 +40,13 @@ impl From<io::Error> for Error {
 
 impl From<toml::de::Error> for Error {
     fn from(error: toml::de::Error) -> Self {
-        Self::Toml(error)
+        Self::TomlDe(error)
     }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct LayoutConfig {
+    #[serde(skip_serializing, skip_deserializing)]
     pub file: PathBuf,
     pub layouts: Layouts,
 }
@@ -51,6 +61,10 @@ impl LayoutConfig {
 
     pub fn get(&self, layout_name: &str) -> Option<&Layout> {
         self.layouts.get(layout_name)
+    }
+
+    pub fn auto_detect(&self) -> CmdResult<()> {
+        unimplemented!("Auto-Detect (xrandr?) monitors and apply layout automatically.")
     }
 
     pub fn layout_names(&self) -> Vec<String> {
@@ -86,7 +100,9 @@ impl LayoutConfig {
             },
             |content| {
                 Ok(if !content.is_empty() {
-                    toml::from_str(&content)?
+                    let mut config = toml::from_str::<Self>(&content)?;
+                    config.file = config_path.to_path_buf();
+                    config
                 } else {
                     Self::new(config_path)
                 })
@@ -109,21 +125,23 @@ impl LayoutConfig {
         unimplemented!();
     }
 
-    pub fn remove(&mut self, layout_name: &str) {
+    pub fn remove(&mut self, layout_name: &str) -> Result<(), Error> {
         self.layouts.remove(layout_name);
-        self._remove_from_toml(layout_name);
+        self._overwrite_config()
     }
 
-    fn _remove_from_toml(&self, layout_name: &str) {
-        unimplemented!();
-    }
-
-    pub fn add(&mut self, layout: &Layout) {
+    pub fn add(&mut self, layout: &Layout) -> Result<(), Error> {
         self.layouts.insert(layout.name.clone(), layout.clone());
-        self._add_to_toml(layout);
+        self._overwrite_config()
     }
 
-    fn _add_to_toml(&self, layout: &Layout) {
-        unimplemented!()
+    fn _overwrite_config(&self) -> Result<(), Error> {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&self.file)
+            .expect("File created on init or existed before otherwise");
+        file.write_all(toml::Value::try_from(&self)?.to_string().as_bytes())?;
+        Ok(())
     }
 }

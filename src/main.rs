@@ -1,5 +1,5 @@
 use clap::Parser;
-use slam_rs::{app, daemon, Args};
+use slam_rs::{app, daemon, exit_err, Args};
 use std::process;
 
 fn main() {
@@ -19,10 +19,10 @@ fn main() {
 
     app::run(&config_path, args.dmenu).unwrap_or_else(|error| match error {
         app::Error::ScreenError(error) => {
-            slam_rs::exit_err!("Failed to read screen properties: {}", error)
+            exit_err!("Failed to read screen properties: {}", error)
         }
-        app::Error::ConfigError(error) => slam_rs::exit_err!("{}", error),
-        app::Error::CmdError(error) => slam_rs::exit_err!("{}", error),
-        app::Error::InternalError => slam_rs::exit_err!("Unexpected error occured!"),
+        app::Error::ConfigError(error) => exit_err!("{}", error),
+        app::Error::CmdError(error) => exit_err!("{}", error),
+        app::Error::InternalError => exit_err!("Unexpected error occured!"),
     })
 }

@@ -12,6 +12,8 @@ use std::{
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
+pub type Outputs = HashMap<String, Output>;
+
 #[derive(Debug)]
 pub enum Error {
     InvalidResolution(String),
@@ -328,14 +330,14 @@ impl Output {
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct Layout {
     pub name: String,
-    pub outputs: HashMap<String, Output>,
+    pub outputs: Outputs,
 }
 
 impl Layout {
     pub fn new() -> Self {
         Self {
             name: String::new(),
-            outputs: HashMap::new(),
+            outputs: Outputs::new(),
         }
     }
 
@@ -347,8 +349,8 @@ impl Layout {
         unimplemented!();
     }
 
-    pub fn add(&mut self, output: &Output) {
-        self.outputs.insert(output.name.clone(), output.clone());
+    pub fn add(&mut self, output: Output) {
+        self.outputs.insert(output.name.clone(), output);
     }
 
     pub fn get(&self, output_name: &str) -> Option<&Output> {
@@ -362,15 +364,18 @@ pub struct OutputModes {
     pub rates: Vec<Rate>,
 }
 
-fn sort_and_filter_unique<T>(v: &mut [T]) -> Vec<T>
+fn sort_and_filter_unique<T>(array: &mut [T]) -> Vec<T>
 where
     T: Hash + Ord + Copy,
 {
-    v.sort_by(|a, b| b.cmp(a));
-    v.iter().unique().take(10).copied().collect()
+    array.sort_by(|a, b| b.cmp(a));
+    array.iter().unique().copied().collect()
 }
 
-fn map_str<T: ToString>(t: &[T]) -> Vec<String> {
+fn map_str<T>(t: &[T]) -> Vec<String>
+where
+    T: ToString,
+{
     t.iter().map(T::to_string).collect()
 }
 

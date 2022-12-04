@@ -171,21 +171,37 @@ impl UI {
         Ok(())
     }
 
+    fn layout_name_should_not_be_empty(&self) -> CmdResult<()> {
+        self.dmenu.run_and_fetch_output(
+            &Message::new(
+                &[],
+                "Layout name should not be empty string (press eny key to continue)",
+            ),
+            false,
+        )?;
+        Ok(())
+    }
+
     fn create_layout(&mut self) -> CmdResult<()> {
+        println!("{:?}", self.config.layouts);
         let mut output_modes = self.xrandr.get_output_modes()?;
         let outputs_connected = output_modes.keys().cloned().collect::<Vec<String>>();
-        if output_modes.len() == 1 {
-            return self.dmenu.run(Message::new(
-                &[],
-                "You don't have any external monitors connected.",
-            ));
-        }
+        // if output_modes.len() == 1 {
+        //     return self.dmenu.run(Message::new(
+        //         &[],
+        //         "You don't have any external monitors connected.",
+        //     ));
+        // }
         let mut relative_outputs = HashMap::new();
         let mut is_primary_selected = PRIMARY_NOT_SELECTED;
 
         let mut layout = Layout::new();
 
         self.select_layout_name(&mut layout)?;
+        if layout.name.is_empty() {
+            self.layout_name_should_not_be_empty()?;
+            return self.create_layout();
+        }
         if !matches!(self.config.get(&layout.name), None)
             && !self.does_override_existing_layout(&layout.name)?
         {
@@ -235,14 +251,16 @@ impl UI {
             }
 
             output_modes.remove(&output.name);
-            layout.add(&output);
+            layout.add(output);
 
             if output_modes.is_empty() || !self.does_add_another_screen()? {
                 break;
             }
         }
         if !layout.is_empty() {
-            self.config.add(&layout);
+            self.config
+                .add(&layout)
+                .unwrap_or_else(|error| exit_err!("{}", error));
             if self.does_apply_new_layout()? {
                 self.config.apply(&layout.name);
             }
@@ -271,7 +289,9 @@ impl UI {
 
     fn remove_layout(&mut self) -> CmdResult<()> {
         let layout_name = self.choose_layout()?;
-        self.config.remove(&layout_name);
+        self.config
+            .remove(&layout_name)
+            .unwrap_or_else(|error| exit_err!("{}", error));
         Ok(())
     }
 
@@ -321,9 +341,7 @@ impl UI {
 
     pub fn start(&mut self) -> CmdResult<()> {
         match self.choose_start_option()? {
-            StartOption::AutoDetect => {
-                unimplemented!("Auto-Detect (xrandr?) monitors and apply layout automatically.")
-            }
+            StartOption::AutoDetect => self.config.auto_detect(),
             StartOption::DisconnectAll => self.config.disconnect_all(),
             StartOption::NewLayout => self.create_layout(),
             StartOption::ApplyLayout => self.apply_layout(),

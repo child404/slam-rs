@@ -34,6 +34,7 @@ pub fn run(config_path: &Path, dmenu_path: Option<PathBuf>) -> Result<(), Error>
     }
 }
 
+// TODO: replace path with layout name and apply layout from the config.rs file
 pub fn apply_layout(layout_path: &Path) {
     unimplemented!();
 }

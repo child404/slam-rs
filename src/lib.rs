@@ -46,6 +46,7 @@ pub struct Args {
     #[arg(short, long, value_name = "FILE", value_hint = clap::ValueHint::FilePath, required = false)]
     pub config: Option<PathBuf>,
 
+    // TODO: rewrite as layout name (String)
     // Apply layout in /path/to/layout.toml file
     #[arg(short, long, value_name = "FILE", value_hint = clap::ValueHint::FilePath, exclusive = true, required = false)]
     pub layout: Option<PathBuf>,

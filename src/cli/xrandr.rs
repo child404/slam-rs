@@ -37,7 +37,7 @@ impl Xrandr {
     pub fn get_output_modes(&self) -> CmdResult<HashMap<String, OutputModes>> {
         let screens_regexp =
             Regex::new(r"(.+) connected\n(?:[\da-zA-Z]+x[\da-zA-Z]+ [\da-zA-Z]+\.[\da-zA-Z]+\n)+")
-                .expect("hardcoded regexp");
+                .expect("Hardcoded regexp.");
         let screen_options = cmd::run_and_fetch_output(
             &(self.cmd.to_string() + " | grep -Ev \"disconnected|Screen\" | awk '{print $1, $2}' | awk -F'[/+* ]' '{print $1\" \"$2}'")
         )?;
@@ -45,12 +45,12 @@ impl Xrandr {
             screens_regexp
                 .captures_iter(&screen_options)
                 .map(|captures| {
-                    let [options, output_name] = &[&captures[0], &captures[1]];
+                    let [modes, output_name] = &[&captures[0], &captures[1]];
                     (
                         output_name.to_string(),
-                        options
+                        modes
                             .parse()
-                            .expect("correct display options as it already matched regexp"),
+                            .expect("Correct display options as it already matched regexp."),
                     )
                 }),
         ))
