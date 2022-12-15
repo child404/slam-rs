@@ -1,5 +1,5 @@
 /// Runs main app with UI based on dmenu
-use crate::{cli::cmd, config, screen, ui::UI};
+use crate::{cli::cmd, config, screen, ui::UserInterface};
 use std::path::{Path, PathBuf};
 
 pub enum Error {
@@ -28,7 +28,7 @@ impl From<screen::Error> for Error {
 }
 
 pub fn run(config_path: &Path, dmenu_path: Option<PathBuf>) -> Result<(), Error> {
-    let mut ui = UI::new(config_path, dmenu_path)?;
+    let mut ui = UserInterface::new(config_path, dmenu_path)?;
     loop {
         ui.start()?;
     }

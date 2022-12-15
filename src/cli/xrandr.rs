@@ -5,7 +5,7 @@ use regex::Regex;
 use std::collections::HashMap;
 
 pub struct Xrandr {
-    cmd: Cmd,
+    pub cmd: Cmd,
 }
 
 impl Default for Xrandr {
@@ -47,6 +47,23 @@ impl Xrandr {
         ))
     }
 
+    pub fn count_connected_outputs(&self) -> CmdResult<usize> {
+        Ok(
+            cmd::run_and_fetch_output(&format!("{} | grep \" connected\"", self.cmd))?
+                .split('\n')
+                .count(),
+        )
+    }
+
+    pub fn list_connected_outputs(&self) -> CmdResult<Vec<String>> {
+        Ok(
+            cmd::run_and_fetch_output(&format!("{} | grep \" connected\"", self.cmd))?
+                .split('\n')
+                .flat_map(parse_screen_output)
+                .collect(),
+        )
+    }
+
     pub fn list_disconnected_outputs(&self) -> CmdResult<Vec<String>> {
         Ok(
             cmd::run_and_fetch_output(&format!("{} | grep \" disconnected\"", self.cmd))?
@@ -57,7 +74,6 @@ impl Xrandr {
     }
 
     pub fn run_with_args(&self, args: &[String]) -> CmdResult<()> {
-        let command = format!("{} {}", self.cmd, args.join(" "));
-        cmd::run(&command)
+        cmd::run(&format!("{} {}", self.cmd, args.join(" ")))
     }
 }

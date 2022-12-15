@@ -55,14 +55,22 @@ impl From<String> for StartOption {
     }
 }
 
-pub struct UI {
+pub struct UserInterface {
     dmenu: Dmenu,
     xrandr: Xrandr,
     config: LayoutConfig,
 }
 
 // TODO: add LayoutManager struct which will create/remove/apply layouts
-impl UI {
+impl UserInterface {
+    pub fn new(config_path: &Path, dmenu_path: Option<PathBuf>) -> Result<Self, config::Error> {
+        Ok(Self {
+            dmenu: Dmenu::new(dmenu_path, None),
+            xrandr: Xrandr::default(),
+            config: LayoutConfig::try_from_toml(config_path)?,
+        })
+    }
+
     fn select_layout_name(&self, layout: &mut Layout) -> CmdResult<()> {
         layout.name = self
             .dmenu
@@ -78,9 +86,7 @@ impl UI {
     }
 
     fn select_output_name(&self, output: &mut Output, output_names: &[String]) -> CmdResult<()> {
-        output.name = self
-            .dmenu
-            .run_until_output_not_matched(Message::new(output_names, "What screen to connect?"))?;
+        output.name = self.select_from_list(output_names, "What screen to connect?")?;
         Ok(())
     }
 
@@ -89,10 +95,7 @@ impl UI {
             .dmenu
             .run_until_output_not_matched(Message::new(&vec_from_enum!(State), "Choose state:"))?;
         let duplicated_screen = if &state == "Duplicated" {
-            Some(self.dmenu.run_until_output_not_matched(Message::new(
-                other_outputs,
-                "Choose duplicated screen:",
-            ))?)
+            Some(self.select_from_list(other_outputs, "Choose duplicated screen:")?)
         } else {
             None
         };
@@ -102,27 +105,24 @@ impl UI {
 
     fn select_resolution(&self, output: &mut Output, resolutions: &[String]) -> CmdResult<()> {
         output.mode.resolution = self
-            .dmenu
-            .run_until_output_not_matched(Message::new(resolutions, "Choose resolution:"))?
+            .select_from_list(resolutions, "Choose resolution:")?
             .into();
         Ok(())
     }
 
     fn select_rate(&self, output: &mut Output, rates: &[String]) -> CmdResult<()> {
-        output.mode.rate = self
-            .dmenu
-            .run_until_output_not_matched(Message::new(rates, "Choose rate:"))?
-            .into();
+        output.mode.rate = self.select_from_list(rates, "Choose rate:")?.into();
         Ok(())
+    }
+
+    fn select_from_list(&self, options: &[String], message: &str) -> CmdResult<String> {
+        self.dmenu
+            .run_until_output_not_matched(Message::new(options, message))
     }
 
     fn select_orientation(&self, output: &mut Output) -> CmdResult<()> {
         output.orientation = self
-            .dmenu
-            .run_until_output_not_matched(Message::new(
-                &vec_from_enum!(Orientation),
-                "Choose orientation:",
-            ))?
+            .select_from_list(&vec_from_enum!(Orientation), "Choose orientation:")?
             .into();
         Ok(())
     }
@@ -150,9 +150,7 @@ impl UI {
         } else {
             vec![Position::Center.to_string()]
         };
-        let position = self
-            .dmenu
-            .run_until_output_not_matched(Message::new(&positions, "Choose position:"))?;
+        let position = self.select_from_list(&positions, "Choose position:")?;
         let relative_screen = if &position != "Center" {
             Some(self.dmenu.run_until_output_not_matched(Message::new(
                 &outputs_for_relative_position,
@@ -179,6 +177,24 @@ impl UI {
         Ok(())
     }
 
+    fn disconnect_other_monitors<'a>(
+        &'a self,
+        layout: &mut Layout,
+        output_names: impl Iterator<Item = &'a String>,
+    ) {
+        for output_name in output_names {
+            layout.add(Output {
+                name: output_name.to_owned(),
+                ..Output::new()
+            });
+        }
+    }
+
+    fn does_layout_exist_and_override(&self, layout_name: &str) -> CmdResult<bool> {
+        Ok(!matches!(self.config.get(layout_name), None)
+            && !self.does_override_existing_layout(layout_name)?)
+    }
+
     fn create_layout(&mut self) -> CmdResult<()> {
         let mut output_modes = self.xrandr.get_output_modes()?;
         let outputs_connected = output_modes.keys().cloned().collect::<Vec<String>>();
@@ -189,24 +205,19 @@ impl UI {
         }
         let mut relative_outputs = HashMap::new();
         let mut is_primary_selected = PRIMARY_NOT_SELECTED;
-
         let mut layout = Layout::new();
 
         self.select_layout_name(&mut layout)?;
+
         if layout.name.is_empty() {
             self.layout_name_should_not_be_empty()?;
             return self.create_layout();
         }
-        if !matches!(self.config.get(&layout.name), None)
-            && !self.does_override_existing_layout(&layout.name)?
-        {
+
+        if self.does_layout_exist_and_override(&layout.name)? {
             return self.create_layout();
         }
 
-        // TODO: instead of removing output, add next logic:
-        //      1) when user specifies the monitor, the monitor still there, but with `check`
-        //      2) if user selects checked output - ask does he want to override selected settings
-        //      3) if yes - override settings, otherwise, continue
         loop {
             let mut output = Output::new();
 
@@ -220,24 +231,17 @@ impl UI {
                 .filter(|output_name| output_name != &&output.name)
                 .cloned()
                 .collect::<Vec<String>>();
-
             self.select_state(&mut output, &other_outputs)?;
 
             if !matches!(output.state, State::Disconnected) {
                 let resolutions = output_modes[&output.name].resolutions();
                 self.select_resolution(&mut output, &resolutions)?;
-
                 let rates = output_modes[&output.name].rates();
                 self.select_rate(&mut output, &rates)?;
-
                 self.select_orientation(&mut output)?;
-
-                // TODO: handle situation when the duplicated/relative screen is not connected in the end
-                // TODO: run position selection only after all outputs were selected
                 if matches!(output.state, State::Connected) {
                     self.select_position(&mut output, &other_outputs, &mut relative_outputs)?;
                 }
-
                 output.is_primary =
                     !is_primary_selected && self.does_make_output_primary(&output.name)?;
                 if output.is_primary {
@@ -247,7 +251,6 @@ impl UI {
 
             output_modes.remove(&output.name);
             layout.add(output);
-
             if output_modes.is_empty() || !self.does_add_another_screen()? {
                 break;
             }
@@ -255,16 +258,13 @@ impl UI {
         if layout.is_empty() {
             return Ok(());
         }
-        // add not used and disconnected outputs as disconnected
-        for output_name in output_modes
-            .keys()
-            .chain(self.xrandr.list_disconnected_outputs()?.iter())
-        {
-            layout.add(Output {
-                name: output_name.to_owned(),
-                ..Output::new()
-            });
-        }
+        self.disconnect_other_monitors(
+            &mut layout,
+            output_modes
+                .keys()
+                .chain(self.xrandr.list_disconnected_outputs()?.iter())
+                .into_iter(),
+        );
         self.config
             .add(&layout)
             .unwrap_or_else(|error| exit_err!("{}", error));
@@ -341,14 +341,6 @@ impl UI {
     fn apply_layout(&mut self) -> CmdResult<()> {
         let layout_name = self.choose_layout()?;
         self.config.apply(&layout_name, &self.xrandr)
-    }
-
-    pub fn new(config_path: &Path, dmenu_path: Option<PathBuf>) -> Result<Self, config::Error> {
-        Ok(Self {
-            dmenu: Dmenu::new(dmenu_path, None),
-            xrandr: Xrandr::default(),
-            config: LayoutConfig::try_from_toml(config_path)?,
-        })
     }
 
     pub fn start(&mut self) -> CmdResult<()> {

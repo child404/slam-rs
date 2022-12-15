@@ -1,12 +1,12 @@
 use clap::Parser;
-use slam_rs::{app, daemon, exit_err, Args};
+use slam_rs::{app, cli, daemon, exit_err, Args};
 use std::process;
 
 fn main() {
     let args = Args::parse();
 
     if args.daemon {
-        daemon::run_daemon();
+        daemon::run_daemon().unwrap_or_else(|error| exit_err!("Error running slamd: {}", error));
         process::exit(0);
     }
 
