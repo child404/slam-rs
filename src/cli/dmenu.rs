@@ -17,8 +17,8 @@ impl Dmenu {
         Self {
             cmd: Cmd::new(
                 bin_path,
-                args.unwrap_or(&["-l 5".to_string(), "-g 1".to_string(), "-p".to_string()]),
-                "dmenu",
+                args.unwrap_or(&["-i".to_string(), "-matching fuzzy".to_string(), "-dmenu".to_string(), "-p".to_string()]),
+                "rofi",
             ),
         }
     }
